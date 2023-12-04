@@ -27,9 +27,10 @@
     (let
         (
             (supply (get-keys-supply subject))
-            (price (get-price supply amount))
+            (price (get-buy-price subject amount))
         )
-        (if (or (> supply u0) (is-eq tx-sender subject))        ;; a subject can always mint his own keys at cost.
+        ;; The subject can always mint his own keys at cost.
+        (if (or (> supply u0) (is-eq tx-sender subject))
             (begin
                 (match (stx-transfer? price tx-sender
                         ;; Get this contract's principal i.e send the funds to the contract.
@@ -51,8 +52,10 @@
 ;; i.e if the contract will always buy, then can we find a way to sell what we don't have?
 (define-public (sell-keys (subject principal) (amount uint))
     (let
-        ((balance (get-keys-balance subject tx-sender))
+        (
+            (balance (get-keys-balance subject tx-sender))
         (supply (get-keys-supply subject))
+        (price (get-sell-price subject amount))
         (recipient tx-sender))
 
         (if (and (>= balance amount)
@@ -93,6 +96,18 @@
 (define-read-only (get-keys-supply (subject principal))
     ;; Return the keysSupply for the given subject
     (default-to u0 (map-get? keysSupply { subject: subject })))
+
+(define-read-only (get-buy-price (subject principal) (amount uint))
+    (let
+        ((supply (default-to u0 (map-get? keysSupply {subject: subject }))))
+        (get-price supply amount)))
+
+(define-read-only (get-sell-price (subject principal) (amount uint))
+    (let
+        ((supply (default-to u0 (map-get? keysSupply {subject: subject }))))
+        ;; Selling always gets a lower price than buying the equivalent amount.
+        (get-price (- supply amount) amount)))
+
 ;;
 
 ;; private functions
