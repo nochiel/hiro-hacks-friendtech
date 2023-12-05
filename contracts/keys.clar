@@ -12,6 +12,10 @@
 ;;
 
 ;; constants
+
+;; For Access Control refer to https://github.com/clarity-lang/book/blob/main/projects/multisig-vault/contracts/multisig-vault.clar
+(define-constant contract-owner tx-sender)
+(define-constant err-owner-only (err u100))
 ;;
 
 ;; data vars
@@ -19,6 +23,7 @@
 (define-data-var subjectFeeFactor uint u300)    ;; .3%
 ;; The default protocol fee destination is the creator of the contract.
 ;; @findout How do I set a different destination at deployment?
+;; @audit Who can set protocolFeeDestination?
 (define-data-var protocolFeeDestination principal tx-sender)
 ;;
 
@@ -28,6 +33,25 @@
 ;;
 
 ;; public functions
+
+;; @todo
+(define-public (set-protocol-fee-percent (feePercent uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (ok (var-set protocolFeeFactor feePercent))))
+
+(define-public (set-subject-fee-percent (feePercent uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (ok (var-set subjectFeeFactor feePercent))))
+
+(define-public (set-protocol-fee-destination (destination principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        ;; @audit Do we need to assert! that the address is non-zero?
+        (asserts! (is-standard destination) (err u404))
+        (ok (var-set protocolFeeDestination destination))))
+
 (define-public (buy-keys (subject principal) (amount uint))
     (let
         ((supply (get-keys-supply subject))
