@@ -15,6 +15,11 @@
 ;;
 
 ;; data vars
+(define-data-var protocolFeeFactor uint u500)   ;; .2%
+(define-data-var subjectFeeFactor uint u300)    ;; .3%
+;; The default protocol fee destination is the creator of the contract.
+;; @findout How do I set a different destination at deployment?
+(define-data-var protocolFeeDestination principal tx-sender)
 ;;
 
 ;; data maps
@@ -25,26 +30,24 @@
 ;; public functions
 (define-public (buy-keys (subject principal) (amount uint))
     (let
-        (
-            (supply (get-keys-supply subject))
-            (price (get-buy-price subject amount))
+        ((supply (get-keys-supply subject))
+        (price (get-buy-price subject amount))
+        (protocolFee (/ price (var-get protocolFeeFactor)))
+        (subjectFee (/ price (var-get subjectFeeFactor)))
+        ;; (priceAfterFees (+ price protocolFee subjectFee))
         )
         ;; The subject can always mint his own keys at cost.
         (if (or (> supply u0) (is-eq tx-sender subject))
             (begin
-                (match (stx-transfer? price tx-sender
-                        ;; Get this contract's principal i.e send the funds to the contract.
-                        (as-contract tx-sender))
-                    success
-                    (begin
-                        (map-set keysBalance { subject: subject, holder: tx-sender }
-                            (+ (default-to u0
-                                            (map-get? keysBalance { subject: subject, holder: tx-sender }))
-                                amount))
-                        (map-set keysSupply { subject: subject } (+ supply amount))
-                        (ok true))
-                    error
-                        (err u2)))
+                (try! (stx-transfer? price tx-sender (as-contract tx-sender))) ;; as-contract gets this contract's principal i.e send the funds to the contract.
+                (try! (stx-transfer? protocolFee tx-sender (var-get protocolFeeDestination)))
+                (try! (stx-transfer? subjectFee tx-sender subject))
+                (map-set keysBalance { subject: subject, holder: tx-sender }
+                        (+ (default-to u0
+                                (map-get? keysBalance { subject: subject, holder: tx-sender }))
+                            amount))
+                (map-set keysSupply { subject: subject } (+ supply amount))
+                (ok true))
             (err u1))))
 
 ;; Sell keys to the contract.
@@ -52,23 +55,24 @@
 ;; i.e if the contract will always buy, then can we find a way to sell what we don't have?
 (define-public (sell-keys (subject principal) (amount uint))
     (let
-        (
-            (balance (get-keys-balance subject tx-sender))
-        (supply (get-keys-supply subject))
+        ((balance (get-keys-balance subject tx-sender))
+            (supply (get-keys-supply subject))
         (price (get-sell-price subject amount))
+        (protocolFee (/ price (var-get protocolFeeFactor)))
+        (subjectFee (/ price (var-get subjectFeeFactor)))
+        (priceMinusFees (- price protocolFee subjectFee))
         (recipient tx-sender))
 
         (if (and (>= balance amount)
                  (or (> supply u0) (is-eq tx-sender subject)))  ;; principal can always mint more of their own tokens.
             (begin
-                (match (as-contract (stx-transfer? price tx-sender recipient))
-                    success
-                    (begin
-                        (map-set keysBalance { subject: subject, holder: tx-sender } (- balance amount))
-                        (map-set keysSupply { subject: subject } (- supply amount))
-                        (ok true))
-                    error
-                        (err u2)))
+                (try! (as-contract (stx-transfer? price tx-sender recipient)))  ;; This contract pays the seller.
+                ;; The seller pays fees.
+                (try! (stx-transfer? protocolFee recipient (var-get protocolFeeDestination)))
+                (try! (stx-transfer? subjectFee recipient subject))
+                (map-set keysBalance { subject: subject, holder: tx-sender } (- balance amount))
+                (map-set keysSupply { subject: subject } (- supply amount))
+                (ok true))
             (err u1))))
 ;;
 
